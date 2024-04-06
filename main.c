@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define MAX_COMMAND_LENGTH 256
 #define SCAN_TIMEOUT 60
@@ -9,6 +10,12 @@
 #define BSSID_LENGTH 17
 #define MAX_NETWORKS 100
 #define MAX_LINE_LENGTH 1024
+#define EXPECTED_FIELD_COUNT 14
+#define MAX_FIELD_LENGTH 128
+#define ESSID_INDEX 13
+#define BSSID_INDEX 0
+#define CHANNEL_INDEX 3
+#define POWER_INDEX 8
 
 typedef struct
 {
@@ -84,17 +91,65 @@ int scan(const char* interface_name)
     return 0;
 }
 
-int is_valid_line(char* line) 
-{
-    int channel, speed;
-    char privacy[10], cipher[10], authentication[10];
-    sscanf(line, "%*[^,],%*[^,],%*[^,],%d,%d,%[^,],%[^,],%[^,],%*d,%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,]",
-           &channel, &speed, privacy, cipher, authentication);
+// Helper function to trim whitespace from a string in-place
+char* trim_whitespace(char* str) {
+    char* end;
 
-    return !(channel == -1 || speed == -1 || strcmp(privacy, "") == 0 || strcmp(cipher, "") == 0 || strcmp(authentication, "") == 0);
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+
+    if(*str == 0)  // All spaces?
+        return str;
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+
+    // Write new null terminator character
+    *(end+1) = 0;
+
+    return str;
 }
 
-int parse_capture(Network networks[MAX_NETWORKS])
+int validate_line(char* line, char* fields[EXPECTED_FIELD_COUNT]) 
+{
+    char* token = strtok(line, ",");
+    int field_count = 0;
+
+    while (token != NULL && field_count < EXPECTED_FIELD_COUNT) 
+    {
+        fields[field_count] = trim_whitespace(token);
+        if (strcmp(fields[field_count], "Station MAC") == 0) 
+        {
+            return -1; // Signals the beginning of the second section
+        }
+
+        // Denotes header line
+        if (strcmp(fields[field_count], "ESSID") == 0)
+        {
+            return 1;
+        }
+
+        // Check if any of the fields are blank
+        if (strcmp(fields[field_count], "") == 0)
+        {
+            return 1;
+        }
+        token = strtok(NULL, ",");
+        field_count++;
+    }
+
+    // Checking field count
+    if (field_count < EXPECTED_FIELD_COUNT) 
+    {
+        return 1;
+    }
+
+    return 0; // Line is valid and should be processed
+}
+
+
+int parse_capture(Network networks[MAX_NETWORKS], int* total_networks)
 {
     printf("[i] Parsing capture file ...\n");
 
@@ -108,33 +163,49 @@ int parse_capture(Network networks[MAX_NETWORKS])
         return 1;
     }
 
-    int line_count = 0;
+    // To temporarily store the parsed fields and validate them
+    char* fields[EXPECTED_FIELD_COUNT];
+
+    // Iterate through each line and store the validated ones
+    int network_count = 0;
     char line[MAX_LINE_LENGTH];
-    while (fgets(line, sizeof(line), fp) && line_count < MAX_NETWORKS) 
+    while (fgets(line, sizeof(line), fp) && network_count < MAX_NETWORKS) 
     {
-        // Skip header lines
-        if (line_count < 2)
-            line_count++;
-
-        // Check if line is valid based on your criteria
-        if (!is_valid_line(line)) continue;
-
-        // Parse valid line
-        int index = line_count - 2;
-        sscanf(line, "%17[^,],%*[^,],%*[^,],%d,%*[^,],%*[^,],%*[^,],%*[^,],%d,%*[^,],%*[^,],%*[^,],%*[^,],%32[^,]",
-               networks[index].bssid, &networks[index].channel, &networks[index].power, networks[index].essid);
-
-        line_count++;
+        int line_status = validate_line(line, fields);
+        if (line_status == 1)
+        {
+            // Found issue, skip and keep processing
+            continue;
+        }
+        else if (line_status == -1)
+        {
+            // Found start of second section - No further processing
+            break;
+        }
+        else 
+        {
+            // Add the network
+            strcpy(networks[network_count].essid, fields[ESSID_INDEX]);
+            strcpy(networks[network_count].bssid, fields[BSSID_INDEX]);
+            networks[network_count].channel = atoi(fields[CHANNEL_INDEX]);
+            networks[network_count].power = atoi(fields[POWER_INDEX]);
+            network_count++;
+        }
     }
+
+    *total_networks = network_count;
 
     fclose(fp);
-
-    // Example: Print parsed networks
-    for (int i = 0; i < line_count - 2; i++) {
-        printf("ESSID: %s, BSSID: %s, Power: %d\n", networks[i].essid, networks[i].bssid, networks[i].power);
-    }
-
     return 0;
+}
+
+void print_network(Network n)
+{
+    printf("ESSID: %s\n", n.essid);
+    printf("    BSSID: %s\n", n.bssid);
+    printf("    CHANNEL: %d\n", n.channel);
+    printf("    POWER: %d\n", n.power);
+    printf("--------------------------------\n");
 }
 
 int main(int argc, char* argv[])
@@ -166,13 +237,19 @@ int main(int argc, char* argv[])
     }
 
     // Parse capture file to identity valid targets
+    int total_networks = 0;
     Network networks[MAX_NETWORKS];
-    result = parse_capture(networks);
+    result = parse_capture(networks, &total_networks);
     if (result != 0)
     {
         printf("Err: Failed to parse capture file.\n");
         return -1;
     }
-    
+
+    for (int i = 0; i < total_networks; i++)
+    {
+        print_network(networks[i]);
+    }
+
     return 0;
 }
