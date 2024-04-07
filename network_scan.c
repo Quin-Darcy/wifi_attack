@@ -52,17 +52,18 @@ int initialize_interface(const char* interface_name)
     return 0;
 }
 
-int scan(const char* interface_name)
+int network_scan(const char* interface_name)
 {
     printf("[i] Performing wireless network scan ...\n");
 
     // Remove all previous captures before continuing
     system("sudo rm *.csv > /dev/null 2>&1");
     system("sudo rm *.cap > /dev/null 2>&1");
+    system("sudo rm *.netxml > /dev/null 2>&1");
 
     // Create the command string to perform scan and call command with system()
     char command[MAX_COMMAND_LENGTH];
-    snprintf(command, sizeof(command), "sudo timeout %d airodump-ng %s -w %s --output-format csv > /dev/null 2>&1", SCAN_TIMEOUT, interface_name, CAPTURE_PREFIX);
+    snprintf(command, sizeof(command), "sudo timeout %d airodump-ng %s -w %s --output-format csv > /dev/null 2>&1", NETWORK_SCAN_TIMEOUT, interface_name, NETWORK_CAPTURE_PREFIX);
     int status = system(command);
     if (status == -1)
     {
@@ -70,7 +71,26 @@ int scan(const char* interface_name)
         return -1;
     }
 
-    printf("[+] Scan captured in %s-01.csv\n", CAPTURE_PREFIX);
+    printf("[+] Scan captured in %s-01.csv\n", NETWORK_CAPTURE_PREFIX);
+
+    return 0;
+}
+
+int client_scan(const char* interface_name, const char* bssid, const char* essid, const int channel)
+{
+    printf("[i] Performing targeted scan against %s ...\n", essid);
+
+    // Create the command string to perform scan and call command with system()
+    char command[MAX_COMMAND_LENGTH];
+    snprintf(command, sizeof(command), "sudo timeout %d airodump-ng %s -d %s --channel %d -w %s-%s --output-format csv > /dev/null 2>&1", CLIENT_SCAN_TIMEOUT, interface_name, bssid, channel, essid, CLIENT_CAPTURE_PREFIX);
+    int status = system(command);
+    if (status == -1)
+    {
+        printf("Err: Failed to perform scan.\n");
+        return -1;
+    }
+
+    printf("[+] Scan captured in %s-%s-01.csv\n", essid, NETWORK_CAPTURE_PREFIX);
 
     return 0;
 }
