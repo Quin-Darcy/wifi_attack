@@ -88,6 +88,7 @@ int main(int argc, char* argv[])
     {
         exists_clients = 1;
     }
+    printf("Clients found: %d\n", client_count);
 
     return 0;
-}
+} 

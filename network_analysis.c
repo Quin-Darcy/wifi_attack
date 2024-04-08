@@ -51,47 +51,64 @@ int validate_network_line(char* line, char* fields[EXPECTED_NETWORK_FIELD_COUNT]
 int validate_client_line(char* line, char* fields[EXPECTED_CLIENT_FIELD_COUNT]) 
 {
     static int station_mac_encountered = 0; // 0 = false, 1 = true
-    char* token = strtok(line, ",");
+    
+    // Make a copy of the original line to preserve its content
+    char* line_copy = strdup(line); // strdup allocates memory and copies the string.
+    if (line_copy == NULL) 
+    {
+        // Handle memory allocation error
+        return -1; // Indicate an error
+    }
+
+    char* token = strtok(line_copy, ",");
     int field_count = 0;
 
-    // Before parsing, check if we have encountered the "Station MAC" header
     if (station_mac_encountered == 0) 
     {
-        while (token != NULL) 
-        {
+        while (token != NULL) {
             char* temp_token = trim_whitespace(token);
             if (strcmp(temp_token, "Station MAC") == 0) 
             {
                 station_mac_encountered = 1; // Header found, subsequent lines are of interest
+                free(line_copy); // Clean up the allocated memory
                 return 1; // Indicate that this line is the header and not data
             }
             token = strtok(NULL, ",");
         }
-        // If this point is reached in this iteration, "Station MAC" has not been encountered yet
+        // If "Station MAC" has not been encountered yet
+        free(line_copy); // Clean up the allocated memory
         return 1; // Indicate to skip this line as it's before the "Station MAC" line
-    }
-    else // "Station MAC" has been encountered, process the line as data
+    } 
+    else 
     {
-        // Reset tokenization process for actual data parsing
-        token = strtok(line, ",");
+        // As we're working with a copy, we need to reset strtok processing on the copy for actual data parsing
+        free(line_copy); // Free the previous copy
+        line_copy = strdup(line); // Make a new copy for processing
+        if (line_copy == NULL) 
+        {
+            // Handle memory allocation error
+            return -1; // Indicate an error
+        }
+        token = strtok(line_copy, ","); // Reset strtok on the new copy
         while (token != NULL && field_count < EXPECTED_CLIENT_FIELD_COUNT) 
         {
             fields[field_count] = trim_whitespace(token);
-            
+
             // Check if any of the fields are blank
-            if (strcmp(fields[field_count], "") == 0)
-            {
+            if (strcmp(fields[field_count], "") == 0) {
+                free(line_copy); // Clean up the allocated memory
                 return 1; // Indicates an invalid line due to a blank field
             }
             token = strtok(NULL, ",");
             field_count++;
         }
 
-        if (field_count < EXPECTED_CLIENT_FIELD_COUNT) 
-        {
+        if (field_count < EXPECTED_CLIENT_FIELD_COUNT) {
+            free(line_copy); // Clean up the allocated memory
             return 1; // Indicates an invalid line due to insufficient fields
         }
-        
+
+        free(line_copy); // Clean up the allocated memory after successful processing
         return 0; // Line is valid and should be processed
     }
 }
@@ -180,6 +197,7 @@ int parse_client_capture(Client client, const char* essid, const char* bssid)
         else 
         {
             // Add the network
+            printf("Here");
             strcpy(clients[client_count].essid, essid);
             strcpy(clients[client_count].bssid, bssid);
             strcpy(clients[client_count].station, fields[STATION_INDEX]);
